@@ -118,11 +118,6 @@ Before the animation starts, the generator is fully consumed into an array in on
 
 ---
 
-## 📄 License
-
-MIT License — free to use, modify, and distribute.
-
----
 
 ## 👤 Author
 
@@ -134,7 +129,7 @@ MIT License — free to use, modify, and distribute.
 
 ---
 
-## Topics / Tags to add on GitHub
+## Topics / Tags 
 ```
 react, sorting-algorithms, visualizer, algorithm, bubble-sort, merge-sort,
 quick-sort, heap-sort, data-structures, educational, javascript, vite,
