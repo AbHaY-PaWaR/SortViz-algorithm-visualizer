@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { useNavigate, Link ,useLocation } from "react-router-dom";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useLocation } from "react-router-dom";
+import Navbar from "./components/Navbar";
 
 // ─── Color Tokens ───────────────────────────────────────────────────────────
 const COLORS = {
@@ -171,7 +172,6 @@ function classifyCase(algo, n, actualComps) {
 
 // ─── Main App ────────────────────────────────────────────────────────────────
 export default function SortingVisualizer() {
-  const navigate = useNavigate();
   const location = useLocation();
   const [algo, setAlgo] = useState(() => location.state?.algo || "bubble");
   const [arraySize, setArraySize] = useState(40);
@@ -185,10 +185,14 @@ export default function SortingVisualizer() {
   const [comparisons, setComparisons] = useState(0);
   const [swaps, setSwaps] = useState(0);
   const [darkMode, setDarkMode] = useState(true);
-  const [currentStep, setCurrentStep] = useState(null);
   const [arrayInputVal, setArrayInputVal] = useState("40");
   const [pureMs, setPureMs] = useState(null);
   const [visualMs, setVisualMs] = useState(null);
+  const [showPureNote, setShowPureNote] = useState(false);
+  const [showSortedToast, setShowSortedToast] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia("(max-width: 768px)").matches);
+  const [showComplexityNote, setShowComplexityNote] = useState(false);
+  const pureNoteRef = useRef(null);
 
   const pauseRef = useRef(false);
   const stopRef = useRef(false);
@@ -196,6 +200,30 @@ export default function SortingVisualizer() {
   const animFrameRef = useRef(null);
 
   useEffect(() => { speedRef.current = speed; }, [speed]);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 768px)");
+    const handleChange = (e) => setIsMobile(e.matches);
+    if (mq.addEventListener) mq.addEventListener("change", handleChange);
+    else mq.addListener(handleChange);
+    return () => {
+      if (mq.removeEventListener) mq.removeEventListener("change", handleChange);
+      else mq.removeListener(handleChange);
+    };
+  }, []);
+  useEffect(() => {
+    if (!showPureNote) return;
+    const handleOutsideClick = (e) => {
+      if (pureNoteRef.current && !pureNoteRef.current.contains(e.target)) {
+        setShowPureNote(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    document.addEventListener("touchstart", handleOutsideClick);
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+      document.removeEventListener("touchstart", handleOutsideClick);
+    };
+  }, [showPureNote]);
 
   const algoInfo = ALGORITHMS[algo];
 
@@ -209,9 +237,9 @@ export default function SortingVisualizer() {
     setSortedSet(new Set());
     setComparisons(0);
     setSwaps(0);
-    setCurrentStep(null);
     setPureMs(null);
     setVisualMs(null);
+    setShowSortedToast(false);
     if (newArr) setArray(newArr);
   }, []);
 
@@ -220,16 +248,16 @@ export default function SortingVisualizer() {
     resetState(arr);
   }, [arraySize, resetState]);
 
-  const sleep = (ms) => new Promise(res => {
+  const sleep = useCallback((ms) => new Promise(res => {
     const id = setTimeout(res, ms);
     animFrameRef.current = id;
-  });
+  }), []);
 
-  const waitWhilePaused = async () => {
+  const waitWhilePaused = useCallback(async () => {
     while (pauseRef.current && !stopRef.current) {
       await sleep(50);
     }
-  };
+  }, [sleep]);
 
   const runSort = useCallback(async () => {
     stopRef.current = false;
@@ -257,8 +285,6 @@ export default function SortingVisualizer() {
       await waitWhilePaused();
       if (stopRef.current) return;
 
-      setCurrentStep(step);
-
       if (step.type === "compare") {
         cmp++;
         setComparisons(cmp);
@@ -285,8 +311,13 @@ export default function SortingVisualizer() {
     setVisualMs(parseFloat((performance.now() - visualStart).toFixed(0)));
     setIsRunning(false);
     setIsDone(true);
-    setCurrentStep(null);
-  }, [algo, array]);
+    setShowSortedToast(true);
+    setTimeout(() => {
+      setShowSortedToast(false);
+    }, 2000);
+  
+    
+  }, [algo, array, sleep, waitWhilePaused]);
 
   const handlePauseResume = () => {
     if (!isRunning) return;
@@ -299,6 +330,9 @@ export default function SortingVisualizer() {
     pauseRef.current = false;
     setTimeout(() => resetState(), 50);
   };
+  
+
+  
 
   // Theme
   const bg = darkMode ? "#0d1117" : "#f0f4f8";
@@ -310,6 +344,7 @@ export default function SortingVisualizer() {
   const accent = "#6366f1";
 
   const maxVal = Math.max(...array);
+  const showBarLabels = arraySize <= (isMobile ? 26 : 50);
 
   return (
     <div style={{ minHeight: "100vh", background: bg, color: text, fontFamily: "'JetBrains Mono', 'Fira Code', monospace", transition: "all 0.3s" }}>
@@ -331,26 +366,18 @@ export default function SortingVisualizer() {
         input[type=number] { background: transparent; border: 1px solid; border-radius: 6px; padding: 6px 10px; font-family: inherit; font-size: 13px; width: 64px; text-align: center; outline: none; }
         input[type=number]:focus { border-color: #6366f1; }
         .done-pulse { animation: donePulse 0.6s ease; }
+        .bar-area { height: 280px; }
+        .bar-labels { display: flex; align-items: flex-start; gap: 2px; padding: 6px 4px 0; height: 18px; }
+        .bar-label { flex: 1; text-align: center; font-size: 10px; color: #8b949e; line-height: 1; }
         @keyframes donePulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
       `}</style>
 
       {/* Header */}
-      <div style={{ background: surface, borderBottom: `1px solid ${border}`, padding: "0 14px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 56 }}>
-       <Link to="/" style={{ textDecoration: "none", color: "inherit" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 30, height: 30, background: "linear-gradient(135deg, #6366f1, #8b5cf6)", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <span style={{ fontSize: 16 }}>⬆</span>
-          </div>
-          <Link to="/" style={{ textDecoration: "none", color: "inherit" }}>
-            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 17, letterSpacing: "-0.02em", cursor: "pointer" }}>SortViz</span>
-          </Link>
-          <span style={{ color: textMuted, fontSize: 12, marginLeft: 4 }}>— algorithm visualizer</span>
-        </div>
-       </Link>
-        <button onClick={() => setDarkMode(!darkMode)} style={{ background: "none", border: `1px solid ${border}`, color: text, borderRadius: 8, padding: "6px 14px", cursor: "pointer", fontSize: 13, fontFamily: "inherit" }}>
-          {darkMode ? "☀ Light" : "☾ Dark"}
-        </button>
-      </div>
+      <Navbar
+        theme={{ surface, border, text, textMuted }}
+        darkMode={darkMode}
+        onToggleTheme={() => setDarkMode(!darkMode)}
+      />
 
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "24px 20px" }}>
 
@@ -368,17 +395,19 @@ export default function SortingVisualizer() {
         {/* Main layout */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 20, alignItems: "start" }}>
 
+            {showSortedToast && (
+                <div className="done-pulse" style={{ position: "absolute", top: 42, right: 54, background: "#10b981", color: "#fff", borderRadius: 6, padding: "5px 10px", fontSize: 11, fontWeight: 700 }}>
+                  ✓ SORTED
+                </div>
+              )}
+
           {/* Left: Visualization */}
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
             {/* Bar chart */}
             <div style={{ background: surface, border: `1px solid ${border}`, borderRadius: 14, padding: "20px 16px 12px", position: "relative" }}>
-              {isDone && (
-                <div className="done-pulse" style={{ position: "absolute", top: 12, right: 14, background: "#10b981", color: "#fff", borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 700 }}>
-                  ✓ SORTED
-                </div>
-              )}
-              <div style={{ display: "flex", alignItems: "flex-end", gap: arraySize > 60 ? 1 : 2, height: 280, padding: "0 4px" }}>
+          
+              <div className="bar-area" style={{ display: "flex", alignItems: "flex-end", gap: arraySize > 60 ? 1 : 2, padding: "0 4px" }}>
                 {array.map((val, i) => {
                   const isSorted = sortedSet.has(i);
                   const color = isSorted ? COLORS.sorted : (barColors[i] || COLORS.default);
@@ -390,12 +419,25 @@ export default function SortingVisualizer() {
                         borderRadius: arraySize < 40 ? "3px 3px 0 0" : "2px 2px 0 0",
                         minWidth: 1, position: "relative",
                       }}
-                    />
+                    /> 
+                    
                   );
+                  
                 })}
               </div>
               {/* Axis */}
-              <div style={{ height: 1, background: border, margin: "0 4px" }} />
+              <div style={{ height: 1,color:"#6366f1"  , background: border , margin: "0 4px" }} />
+              {/* Values */}
+              <div
+                className="bar-labels"
+                style={{ display: showBarLabels ? "flex" : "none", gap: arraySize > 60 ? 1 : 2 }}
+              >
+                {array.map((val, i) => (
+                  <div key={`label-${i}`} className="bar-label" style={{ color: textMuted }}>
+                    {val}
+                  </div>
+                ))}
+              </div>
             </div>
 
             {/* Stats row */}
@@ -414,13 +456,79 @@ export default function SortingVisualizer() {
             {/* Timing cards */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div className="stat-card" style={{ background: surface, border: `1px solid ${border}` }}>
-                <span style={{ fontSize: 9, color: textMuted, letterSpacing: "0.08em", fontWeight: 600 }}>⚡ PURE ALGO TIME</span>
-                <span style={{ fontSize: 20, fontWeight: 700, color: "#6366f1" }}>{pureMs !== null ? `${pureMs} ms` : "—"}</span>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{ fontSize: 9, color: textMuted, letterSpacing: "0.08em", fontWeight: 600 }}>{"\u26a1"} PURE ALGO TIME</span>
+                  <div ref={pureNoteRef} style={{ position: "relative" }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowPureNote((prev) => !prev)}
+                      style={{
+                        border: `1px solid ${border}`,
+                        background: showPureNote ? `${accent}22` : surfaceAlt,
+                        color: showPureNote ? accent : textMuted,
+                        fontSize: 9,
+                        fontWeight: 600,
+                        padding: "2px 6px",
+                        borderRadius: 6,
+                        cursor: "pointer",
+                        letterSpacing: "0.06em",
+                        fontFamily: "inherit",
+                      }}
+                    >
+                      WHY VARIES?
+                    </button>
+                    {showPureNote && (
+                      <div
+                        style={{
+                          position: "absolute",
+                          right: 0,
+                          top: "calc(100% + 8px)",
+                          width: 260,
+                          maxWidth: "80vw",
+                          background: surface,
+                          border: `1px solid ${border}`,
+                          borderRadius: 10,
+                          padding: "10px 12px",
+                          zIndex: 6,
+                          boxShadow: darkMode
+                            ? "0 10px 28px rgba(0,0,0,0.35)"
+                            : "0 10px 28px rgba(15,23,42,0.15)",
+                        }}
+                      >
+                        <div style={{ fontSize: 10, fontWeight: 700, color: text, marginBottom: 6 }}>
+                          Why does it vary between runs?
+                        </div>
+                        <div style={{ fontSize: 10, color: textMuted, lineHeight: 1.5, marginBottom: 8 }}>
+                          Even on the same array, you might see 0.3ms once and 0.8ms the next time. This is because:
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+                          {[
+                            { title: "CPU scheduling", text: "Other browser tasks may briefly interrupt your code." },
+                            { title: "JIT compilation", text: "V8 (Chrome's JS engine) may or may not have compiled that code path yet." },
+                            { title: "Memory pressure", text: "Garbage collection can pause execution briefly." },
+                            { title: "Browser throttling", text: "Background tabs get less CPU time." },
+                          ].map((item) => (
+                            <div key={item.title} style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
+                              <div style={{ width: 6, height: 6, borderRadius: "50%", background: accent, marginTop: 6, flexShrink: 0 }} />
+                              <div style={{ fontSize: 10, color: textMuted, lineHeight: 1.5 }}>
+                                <span style={{ color: text, fontWeight: 600 }}>{item.title}</span> - {item.text}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ fontSize: 10, color: textMuted, lineHeight: 1.5 }}>
+                          For a more stable measurement, run the algorithm hundreds of times and average the results.
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <span style={{ fontSize: 20, fontWeight: 700, color: "#6366f1" }}>{pureMs !== null ? `${pureMs} ms` : "\u2014"}</span>
                 <span style={{ fontSize: 9, color: textMuted }}>no animation delays</span>
               </div>
               <div className="stat-card" style={{ background: surface, border: `1px solid ${border}` }}>
-                <span style={{ fontSize: 9, color: textMuted, letterSpacing: "0.08em", fontWeight: 600 }}>🎬 VISUAL TIME</span>
-                <span style={{ fontSize: 20, fontWeight: 700, color: "#a855f7" }}>{isDone && visualMs !== null ? `${(visualMs/1000).toFixed(2)} s` : isRunning ? "running..." : "—"}</span>
+                <span style={{ fontSize: 9, color: textMuted, letterSpacing: "0.08em", fontWeight: 600 }}>{"\ud83c\udfac"} VISUAL TIME</span>
+                <span style={{ fontSize: 20, fontWeight: 700, color: "#a855f7" }}>{isDone && visualMs !== null ? `${(visualMs/1000).toFixed(2)} s` : isRunning ? "running..." : "\u2014"}</span>
                 <span style={{ fontSize: 9, color: textMuted }}>total animation duration</span>
               </div>
             </div>
@@ -449,13 +557,62 @@ export default function SortingVisualizer() {
               return (
                 <div style={{ background: surface, border: `1px solid ${border}`, borderRadius: 14, padding: 18 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: textMuted, letterSpacing: "0.08em" }}>ACTUAL COMPLEXITY ANALYSIS <span style={{fontWeight:400,opacity:0.6}}>(comparisons)</span></span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: textMuted, letterSpacing: "0.08em" }}>
+                        ACTUAL COMPLEXITY ANALYSIS <span style={{ fontWeight: 400, opacity: 0.6 }}>(comparisons)</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowComplexityNote((prev) => !prev)}
+                        style={{
+                          border: `1px solid ${border}`,
+                          background: showComplexityNote ? `${accent}22` : surfaceAlt,
+                          color: showComplexityNote ? accent : textMuted,
+                          fontSize: 9,
+                          fontWeight: 600,
+                          padding: "2px 6px",
+                          borderRadius: 6,
+                          cursor: "pointer",
+                          letterSpacing: "0.06em",
+                          fontFamily: "inherit",
+                        }}
+                      >
+                        WHAT IS THIS?
+                      </button>
+                    </div>
                     {isDone && (
                       <span style={{ fontSize: 11, fontWeight: 700, color: caseInfo.color, background: `${caseInfo.color}18`, padding: "3px 10px", borderRadius: 6 }}>
                         {caseInfo.emoji} {caseInfo.label}
                       </span>
                     )}
                   </div>
+                  {showComplexityNote && (
+                    <div style={{ marginBottom: 12, padding: "10px 12px", border: `1px dashed ${border}`, borderRadius: 10, background: surfaceAlt }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: text, marginBottom: 6 }}>
+                        What this panel shows
+                      </div>
+                      <div style={{ fontSize: 10, color: textMuted, lineHeight: 1.5, marginBottom: 8 }}>
+                        It compares the number of comparisons(or operations) from your current run against the theoretical best, average, and worst cases for the selected algorithm.
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+                        {[
+                          { title: "Bars", text: "Each bar is a theoretical case (best/avg/worst). The highlighted bar is your actual run." },
+                          { title: "Scale", text: "Percent width is normalized to the worst case, so you can see how close you are to the top bound." },
+                          { title: "Case label", text: "The badge tags this run as best/average/worst based on where your comparisons land in that range." },
+                        ].map((item) => (
+                          <div key={item.title} style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
+                            <div style={{ width: 6, height: 6, borderRadius: "50%", background: accent, marginTop: 6, flexShrink: 0 }} />
+                            <div style={{ fontSize: 10, color: textMuted, lineHeight: 1.5 }}>
+                              <span style={{ color: text, fontWeight: 600 }}>{item.title}</span> - {item.text}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ fontSize: 10, color: textMuted, lineHeight: 1.5 }}>
+                        Tip: If you re-run on the same array, the case label usually stays the same because comparisons depend on input order, not timing noise.  <span>(ops)--&gt;operation</span>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Comparison bars */}
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -563,7 +720,7 @@ export default function SortingVisualizer() {
                   style={{ background: surfaceAlt, color: text, gridColumn: "1/-1", border: `1px solid ${border}` }}>
                   ↺ New Array
                 </button>
-                <button className="ctrl-btn" disabled={isRunning && !isPaused} onClick={runSort}
+                <button className="ctrl-btn" disabled={isRunning} onClick={runSort}
                   style={{ background: `linear-gradient(135deg, ${accent}, #8b5cf6)`, color: "#fff" }}>
                   {isDone ? "↺ Run" : "▶ Start"}
                 </button>
@@ -646,6 +803,12 @@ export default function SortingVisualizer() {
         @keyframes statusPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
         @media (max-width: 768px) {
           div[style*="grid-template-columns: 1fr 300px"] { display: flex !important; flex-direction: column !important; }
+          .bar-area { height: 220px; }
+          .bar-labels { height: 14px; }
+          .bar-label { font-size: 8px; }
+        }
+        @media (max-width: 480px) {
+          .bar-area { height: 190px; }
         }
       `}</style>
     </div>
