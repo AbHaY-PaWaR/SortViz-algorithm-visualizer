@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useLocation } from "react-router-dom";
 import Navbar from "./components/Navbar";
 
@@ -148,6 +148,34 @@ function speedToDelay(speed) {
   return Math.round(500 / Math.pow(speed, 1.6));
 }
 
+function buildHeapLayout(arr, paddingX = 0.06, paddingY = 0.08) {
+  const n = arr.length;
+  if (n === 0) return { nodes: [], edges: [], levels: 0 };
+  const levels = Math.floor(Math.log2(n)) + 1;
+  const nodes = [];
+  const edges = [];
+
+  for (let i = 0; i < n; i++) {
+    const level = Math.floor(Math.log2(i + 1));
+    const levelStart = Math.pow(2, level) - 1;
+    const posInLevel = i - levelStart;
+    const nodesInLevel = Math.pow(2, level);
+    const rawX = (posInLevel + 0.5) / nodesInLevel;
+    const rawY = levels === 1 ? 0.5 : level / (levels - 1);
+    const x = paddingX + (1 - paddingX * 2) * rawX;
+    const y = paddingY + (1 - paddingY * 2) * rawY;
+    nodes.push({ index: i, x, y, level });
+
+    const left = 2 * i + 1;
+    const right = 2 * i + 2;
+    if (left < n) edges.push({ from: i, to: left });
+    if (right < n) edges.push({ from: i, to: right });
+  }
+
+  return { nodes, edges, levels };
+}
+
+
 // ─── Actual Complexity Helpers ───────────────────────────────────────────────
 function computeTheoreticalOps(algo, n) {
   switch (algo) {
@@ -173,10 +201,11 @@ function classifyCase(algo, n, actualComps) {
 // ─── Main App ────────────────────────────────────────────────────────────────
 export default function SortingVisualizer() {
   const location = useLocation();
-  const [algo, setAlgo] = useState(() => location.state?.algo || "bubble");
-  const [arraySize, setArraySize] = useState(40);
+  const initialAlgo = location.state?.algo || "bubble";
+  const [algo, setAlgo] = useState(initialAlgo);
+  const [arraySize, setArraySize] = useState(10);
   const [speed, setSpeed] = useState(5);
-  const [array, setArray] = useState(() => generateArray(40));
+  const [array, setArray] = useState(() => generateArray(10));
   const [barColors, setBarColors] = useState({});
   const [sortedSet, setSortedSet] = useState(new Set());
   const [isRunning, setIsRunning] = useState(false);
@@ -185,13 +214,15 @@ export default function SortingVisualizer() {
   const [comparisons, setComparisons] = useState(0);
   const [swaps, setSwaps] = useState(0);
   const [darkMode, setDarkMode] = useState(true);
-  const [arrayInputVal, setArrayInputVal] = useState("40");
+  const [arrayInputVal, setArrayInputVal] = useState("10");
   const [pureMs, setPureMs] = useState(null);
   const [visualMs, setVisualMs] = useState(null);
   const [showPureNote, setShowPureNote] = useState(false);
   const [showSortedToast, setShowSortedToast] = useState(false);
   const [isMobile, setIsMobile] = useState(() => window.matchMedia("(max-width: 768px)").matches);
   const [showComplexityNote, setShowComplexityNote] = useState(false);
+  const [showArrayView, setShowArrayView] = useState(true);
+  const [showTreeView, setShowTreeView] = useState(initialAlgo === "heap");
   const pureNoteRef = useRef(null);
 
   const pauseRef = useRef(false);
@@ -225,6 +256,8 @@ export default function SortingVisualizer() {
     };
   }, [showPureNote]);
 
+  const heapTreeLimit = 20;
+  const isHeapTreeAllowed = arraySize <= heapTreeLimit;
   const algoInfo = ALGORITHMS[algo];
 
   const resetState = useCallback((newArr) => {
@@ -242,6 +275,29 @@ export default function SortingVisualizer() {
     setShowSortedToast(false);
     if (newArr) setArray(newArr);
   }, []);
+
+  const selectAlgo = useCallback((nextAlgo) => {
+    setAlgo(nextAlgo);
+    if (nextAlgo === "heap") {
+      setShowArrayView(true);
+      setShowTreeView(isHeapTreeAllowed);
+    } else {
+      setShowArrayView(true);
+      setShowTreeView(false);
+    }
+    resetState();
+  }, [isHeapTreeAllowed, resetState]);
+
+  const applyArraySize = useCallback((nextSize) => {
+    const v = Math.min(100, Math.max(5, nextSize));
+    setArraySize(v);
+    setArrayInputVal(String(v));
+    const arr = generateArray(v);
+    resetState(arr);
+    if (v > heapTreeLimit) {
+      setShowTreeView(false);
+    }
+  }, [heapTreeLimit, resetState]);
 
   const newArray = useCallback(() => {
     const arr = generateArray(arraySize);
@@ -343,8 +399,29 @@ export default function SortingVisualizer() {
   const textMuted = darkMode ? "#8b949e" : "#718096";
   const accent = "#6366f1";
 
-  const maxVal = Math.max(...array);
+  const maxVal = Math.max(1, ...array);
   const showBarLabels = arraySize <= (isMobile ? 26 : 50);
+  const isHeap = algo === "heap";
+  const showArrayBars = !isHeap || showArrayView;
+  const showHeapTree = isHeap && showTreeView && isHeapTreeAllowed;
+  const showTreeLabels = arraySize <= (isMobile ? 23 : 31);
+  const baseTreeNodeRadius = arraySize <= 31 ? 4.2 : arraySize <= 63 ? 3.2 : 2.6;
+  const treeNodeRadius = isMobile ? Math.max(2.2, baseTreeNodeRadius - 0.6) : baseTreeNodeRadius;
+  const treeLabelSize = Math.max(2.4, treeNodeRadius * 1.05);
+  const treePaddingX = Math.min(0.12, Math.max(0.05, treeNodeRadius / 100 + (isMobile ? 0.04 : 0.03)));
+  const treePaddingY = Math.min(0.14, Math.max(0.06, treeNodeRadius / 100 + (isMobile ? 0.06 : 0.04)));
+  const heapLayout = useMemo(
+    () => buildHeapLayout(array, treePaddingX, treePaddingY),
+    [array, treePaddingX, treePaddingY]
+  );
+  const heapNodeMap = useMemo(
+    () => new Map(heapLayout.nodes.map((node) => [node.index, node])),
+    [heapLayout.nodes]
+  );
+  const treeHeight = Math.min(
+    isMobile ? 260 : 320,
+    Math.max(isMobile ? 200 : 240, 140 + heapLayout.levels * (isMobile ? 28 : 34))
+  );
 
   return (
     <div style={{ minHeight: "100vh", background: bg, color: text, fontFamily: "'JetBrains Mono', 'Fira Code', monospace", transition: "all 0.3s" }}>
@@ -369,6 +446,9 @@ export default function SortingVisualizer() {
         .bar-area { height: 280px; }
         .bar-labels { display: flex; align-items: flex-start; gap: 2px; padding: 6px 4px 0; height: 18px; }
         .bar-label { flex: 1; text-align: center; font-size: 10px; color: #8b949e; line-height: 1; }
+        .viz-grid { display: grid; gap: 14px; }
+        .heap-tree { position: relative; width: 100%; height: 280px; overflow: hidden; padding: 10px; }
+        .heap-edge { stroke: #475569; stroke-linecap: round; opacity: 0.7; }
         @keyframes donePulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
       `}</style>
 
@@ -384,7 +464,7 @@ export default function SortingVisualizer() {
         {/* Algorithm Selector */}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
           {Object.entries(ALGORITHMS).map(([key, info]) => (
-            <button key={key} disabled={isRunning} onClick={() => { setAlgo(key); resetState(); }}
+            <button key={key} disabled={isRunning} onClick={() => selectAlgo(key)}
               className="algo-btn"
               style={{ background: algo === key ? accent : "transparent", color: algo === key ? "#fff" : textMuted, borderColor: algo === key ? accent : border }}>
               {info.name}
@@ -405,38 +485,187 @@ export default function SortingVisualizer() {
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
             {/* Bar chart */}
-            <div style={{ background: surface, border: `1px solid ${border}`, borderRadius: 14, padding: "20px 16px 12px", position: "relative" }}>
-          
-              <div className="bar-area" style={{ display: "flex", alignItems: "flex-end", gap: arraySize > 60 ? 1 : 2, padding: "0 4px" }}>
-                {array.map((val, i) => {
-                  const isSorted = sortedSet.has(i);
-                  const color = isSorted ? COLORS.sorted : (barColors[i] || COLORS.default);
-                  const heightPct = (val / maxVal) * 100;
-                  return (
-                    <div key={i} className="bar"
-                      style={{
-                        flex: 1, height: `${heightPct}%`, background: color,
-                        borderRadius: arraySize < 40 ? "3px 3px 0 0" : "2px 2px 0 0",
-                        minWidth: 1, position: "relative",
+            <div style={{ background: surface, border: `1px solid ${border}`, borderRadius: 14, padding: "16px 16px 12px", position: "relative" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: textMuted, letterSpacing: "0.08em" }}>VISUALIZATION</div>
+                {isHeap && (
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button
+                      type="button"
+                      disabled={showArrayView && !showTreeView}
+                      onClick={() => {
+                        if (showArrayView && !showTreeView) return;
+                        setShowArrayView((prev) => !prev);
                       }}
-                    /> 
-                    
-                  );
-                  
-                })}
-              </div>
-              {/* Axis */}
-              <div style={{ height: 1,color:"#6366f1"  , background: border , margin: "0 4px" }} />
-              {/* Values */}
-              <div
-                className="bar-labels"
-                style={{ display: showBarLabels ? "flex" : "none", gap: arraySize > 60 ? 1 : 2 }}
-              >
-                {array.map((val, i) => (
-                  <div key={`label-${i}`} className="bar-label" style={{ color: textMuted }}>
-                    {val}
+                      style={{
+                        border: `1px solid ${border}`,
+                        background: showArrayView ? `${accent}22` : surfaceAlt,
+                        color: showArrayView ? accent : textMuted,
+                        fontSize: 10,
+                        fontWeight: 700,
+                        padding: "4px 8px",
+                        borderRadius: 6,
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                      }}
+                    >
+                      ARRAY VIEW
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!isHeapTreeAllowed || (showTreeView && !showArrayView)}
+                      onClick={() => {
+                        if (!isHeapTreeAllowed || (showTreeView && !showArrayView)) return;
+                        setShowTreeView((prev) => !prev);
+                      }}
+                      style={{
+                        border: `1px solid ${border}`,
+                        background: showTreeView ? `${accent}22` : surfaceAlt,
+                        color: showTreeView ? accent : textMuted,
+                        fontSize: 10,
+                        fontWeight: 700,
+                        padding: "4px 8px",
+                        borderRadius: 6,
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                      }}
+                    >
+                      {isHeapTreeAllowed ? "HEAP TREE" : `HEAP TREE (MAX ${heapTreeLimit})`}
+                    </button>
                   </div>
-                ))}
+                )}
+              </div>
+
+              <div
+                className="viz-grid"
+                style={{
+                  gridTemplateColumns: "1fr",
+                  alignItems: "start",
+                }}
+              >
+                {showArrayBars && (
+                  <div>
+                    <div className="bar-area" style={{ display: "flex", alignItems: "flex-end", gap: arraySize > 60 ? 1 : 2, padding: "0 4px" }}>
+                      {array.map((val, i) => {
+                        const isSorted = sortedSet.has(i);
+                        const color = isSorted ? COLORS.sorted : (barColors[i] || COLORS.default);
+                        const heightPct = (val / maxVal) * 100;
+                        return (
+                          <div key={i} className="bar"
+                            style={{
+                              flex: 1, height: `${heightPct}%`, background: color,
+                              borderRadius: arraySize < 40 ? "3px 3px 0 0" : "2px 2px 0 0",
+                              minWidth: 1, position: "relative",
+                            }}
+                          />
+                        );
+                      })}
+                    </div>
+                    <div style={{ height: 1, color:"#6366f1", background: border, margin: "0 4px" }} />
+                    <div
+                      className="bar-labels"
+                      style={{ display: showBarLabels ? "flex" : "none", gap: arraySize > 60 ? 1 : 2 }}
+                    >
+                      {array.map((val, i) => (
+                        <div key={`label-${i}`} className="bar-label" style={{ color: textMuted }}>
+                          {val}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {showHeapTree && (
+                  <div>
+                    <div
+                      className="heap-tree"
+                      style={{
+                        height: treeHeight,
+                        border: `1px dashed ${border}`,
+                        borderRadius: 12,
+                        padding: isMobile ? 8 : 12,
+                      }}
+                    >
+                      <svg
+                        viewBox="0 0 100 100"
+                        preserveAspectRatio="xMidYMid meet"
+                        style={{ width: "100%", height: "100%", display: "block" }}
+                      >
+                        {heapLayout.edges.map((edge, idx) => {
+                          const fromNode = heapNodeMap.get(edge.from);
+                          const toNode = heapNodeMap.get(edge.to);
+                          if (!fromNode || !toNode) return null;
+                          const x1 = fromNode.x * 100;
+                          const y1 = fromNode.y * 100;
+                          const x2 = toNode.x * 100;
+                          const y2 = toNode.y * 100;
+                          const dx = x2 - x1;
+                          const dy = y2 - y1;
+                          const dist = Math.hypot(dx, dy) || 1;
+                          const offset = treeNodeRadius;
+                          const sx = x1 + (dx * offset) / dist;
+                          const sy = y1 + (dy * offset) / dist;
+                          const tx = x2 - (dx * offset) / dist;
+                          const ty = y2 - (dy * offset) / dist;
+                          return (
+                            <line
+                              key={`edge-${idx}`}
+                              x1={sx}
+                              y1={sy}
+                              x2={tx}
+                              y2={ty}
+                              className="heap-edge"
+                              strokeWidth={isMobile ? 0.6 : 0.8}
+                            />
+                          );
+                        })}
+
+                        {heapLayout.nodes.map((node) => {
+                          const isSorted = sortedSet.has(node.index);
+                          const fill = isSorted ? COLORS.sorted : (barColors[node.index] || COLORS.default);
+                          const textColor = darkMode ? "#0b1120" : "#ffffff";
+                          const cx = node.x * 100;
+                          const cy = node.y * 100;
+                          return (
+                            <g key={`node-${node.index}`}>
+                              <circle
+                                cx={cx}
+                                cy={cy}
+                                r={treeNodeRadius}
+                                fill={fill}
+                                stroke={darkMode ? "#0f172a" : "#e2e8f0"}
+                                strokeWidth={0.6}
+                              />
+                              {showTreeLabels && (
+                                <text
+                                  x={cx}
+                                  y={cy}
+                                  textAnchor="middle"
+                                  dominantBaseline="middle"
+                                  fill={textColor}
+                                  fontSize={treeLabelSize}
+                                  fontWeight="700"
+                                  style={{ fontVariantNumeric: "tabular-nums" }}
+                                >
+                                  {array[node.index]}
+                                </text>
+                              )}
+                            </g>
+                          );
+                        })}
+                      </svg>
+                    </div>
+                    <div style={{ marginTop: 6, fontSize: 10, color: textMuted }}>
+                      {array.length === 0
+                        ? "Heap is empty."
+                        : !isHeapTreeAllowed
+                          ? `Heap tree hidden when size > ${heapTreeLimit}.`
+                          : showTreeLabels
+                            ? "Heap view (level-order)."
+                            : "Heap view (labels hidden for clarity)."}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -692,14 +921,13 @@ export default function SortingVisualizer() {
                   <input type="number" min={5} max={100} value={arrayInputVal} disabled={isRunning}
                     onChange={e => setArrayInputVal(e.target.value)}
                     onBlur={e => {
-                      const v = Math.min(100, Math.max(5, parseInt(e.target.value) || 40));
-                      setArraySize(v); setArrayInputVal(String(v));
-                      const arr = generateArray(v); resetState(arr);
+                      const v = parseInt(e.target.value, 10);
+                      applyArraySize(Number.isNaN(v) ? 40 : v);
                     }}
                     style={{ color: text, borderColor: border }} />
                 </div>
                 <input type="range" min={5} max={100} value={arraySize} disabled={isRunning}
-                  onChange={e => { const v = +e.target.value; setArraySize(v); setArrayInputVal(String(v)); const arr = generateArray(v); resetState(arr); }}
+                  onChange={e => { const v = +e.target.value; applyArraySize(v); }}
                   style={{ width: "100%", background: `linear-gradient(to right, ${accent} ${(arraySize - 5) / 95 * 100}%, ${border} 0)` }} />
               </div>
 
@@ -781,7 +1009,7 @@ export default function SortingVisualizer() {
                   const isSelected = key === algo;
                   const barWidth = { "O(n²)": "100%", "O(n log n)": "55%", "O(n)": "30%" }[info.time] || "60%";
                   return (
-                    <div key={key} onClick={() => { if (!isRunning) { setAlgo(key); resetState(); } }}
+                    <div key={key} onClick={() => { if (!isRunning) { selectAlgo(key); } }}
                       style={{ cursor: isRunning ? "default" : "pointer", padding: "6px 8px", borderRadius: 8, background: isSelected ? `${accent}15` : "transparent", border: `1px solid ${isSelected ? accent : "transparent"}`, transition: "all 0.15s" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
                         <span style={{ fontSize: 11, fontWeight: 600, color: isSelected ? accent : textMuted }}>{info.name}</span>
